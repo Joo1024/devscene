@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 config = json.loads(base64.b64decode(sys.argv[1]))
-found, errors, visited = {}, [], set()
+found, errors, visited = {}, [], {}
 budget = 15000
 
 def git(directory, *args):
@@ -40,13 +40,13 @@ def checkout(directory):
 
 def walk(directory, depth):
     global budget
+    directory = os.path.realpath(directory)
+    if visited.get(directory, -1) >= depth:
+        return
     budget -= 1
     if budget < 0:
         raise RuntimeError('超过 15000 个目录扫描上限，请缩小范围')
-    directory = os.path.realpath(directory)
-    if directory in visited:
-        return
-    visited.add(directory)
+    visited[directory] = depth
     children = list(os.scandir(directory))
     if any(c.name == '.git' for c in children):
         checkout(directory)

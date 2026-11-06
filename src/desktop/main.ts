@@ -133,10 +133,7 @@ else
             service.saveWorkset(payload.name, payload.locationIds, payload.id);
             return true;
           case "deleteWorkset":
-            store.data.worksets = store.data.worksets.filter(
-              (w) => w.id !== payload,
-            );
-            store.save();
+            service.deleteWorkset(String(payload));
             return true;
           case "activate":
             return service.requestActivation(
@@ -202,8 +199,7 @@ else
               cancelId: 0,
             });
             if (confirm.response !== 1) return false;
-            store.import(value);
-            service.sessions.clear();
+            service.importOrganization(value);
             return true;
           }
           case "diagnostics": {

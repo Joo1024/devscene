@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { initialData, ScanCache, UserData, validateData } from "./domain";
+import {
+  initialData,
+  ScanCache,
+  UserData,
+  validateData,
+  validateLocationSnapshot,
+} from "./domain";
 
 export function atomicWrite(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -22,10 +28,18 @@ export class Store {
   constructor(readonly directory: string) {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     const file = path.join(directory, "organization.json");
-    this.data = fs.existsSync(file)
-      ? validateData(JSON.parse(fs.readFileSync(file, "utf8")))
-      : initialData();
-    if (!fs.existsSync(file)) this.save();
+    const existing = fs.existsSync(file);
+    const previous = existing
+      ? JSON.parse(fs.readFileSync(file, "utf8"))
+      : undefined;
+    this.data = existing ? validateData(previous) : initialData();
+    if (previous?.version === 1) {
+      atomicWrite(
+        path.join(directory, "organization.before-migration-v1.json"),
+        previous,
+      );
+      this.save();
+    } else if (!existing) this.save();
     try {
       const cache = JSON.parse(
         fs.readFileSync(path.join(directory, "discovery-cache.json"), "utf8"),
@@ -43,11 +57,12 @@ export class Store {
           (c.lastSuccess !== undefined && !Number.isFinite(c.lastSuccess))
         )
           throw new Error("缓存状态无效");
-        validateData({
-          ...this.data,
-          manualLocations: c.locations,
-          worksets: [],
-        });
+        if (!Array.isArray(c.locations) || c.locations.length > 20000)
+          throw new Error("位置缓存无效");
+        for (const l of c.locations) {
+          if (l.environmentId !== id) throw new Error("缓存环境不匹配");
+          validateLocationSnapshot(l, this.data.environments);
+        }
       }
       this.cache = cache.environments;
     } catch (err) {
@@ -56,10 +71,12 @@ export class Store {
     }
   }
   save(): void {
-    atomicWrite(
-      path.join(this.directory, "organization.json"),
-      validateData(this.data),
-    );
+    this.replace(this.data);
+  }
+  replace(value: unknown): void {
+    const next = validateData(value);
+    atomicWrite(path.join(this.directory, "organization.json"), next);
+    this.data = next;
   }
   saveCache(): void {
     atomicWrite(path.join(this.directory, "discovery-cache.json"), {
@@ -68,7 +85,7 @@ export class Store {
     });
   }
   export(): UserData {
-    return structuredClone(this.data);
+    return validateData(this.data);
   }
   import(value: unknown): void {
     const next = validateData(value);

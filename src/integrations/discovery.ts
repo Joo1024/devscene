@@ -30,7 +30,7 @@ export async function git(directory: string, args: string[]): Promise<string> {
 export async function scanLocal(environment: Environment): Promise<Discovery> {
   const found = new Map<string, Location>();
   const errors: string[] = [];
-  const visited = new Set<string>();
+  const visited = new Map<string, number>();
   let budget = 15000;
   async function checkout(directory: string): Promise<void> {
     const canonical = await fs.realpath(directory).catch(() => directory);
@@ -88,10 +88,10 @@ export async function scanLocal(environment: Environment): Promise<Discovery> {
     }
   }
   async function walk(directory: string, depth: number): Promise<void> {
-    if (--budget < 0) throw new Error("超过 15000 个目录扫描上限，请缩小范围");
     const canonical = await fs.realpath(directory);
-    if (visited.has(canonical)) return;
-    visited.add(canonical);
+    if ((visited.get(canonical) ?? -1) >= depth) return;
+    if (--budget < 0) throw new Error("超过 15000 个目录扫描上限，请缩小范围");
+    visited.set(canonical, depth);
     const children = await fs.readdir(canonical, { withFileTypes: true });
     if (children.some((c) => c.name === ".git")) await checkout(canonical);
     if (depth <= 0) return;

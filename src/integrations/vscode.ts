@@ -1,7 +1,41 @@
 import { Environment, FolderReport, SessionReport } from "../core/domain";
+import path from "node:path";
 
 // Only this adapter understands VS Code remote authority formats.
 export function resolveVSCodeFolder(
+  folder: FolderReport,
+  environments: Environment[],
+):
+  | { environment: Environment; directory: string; checkoutPath?: string }
+  | undefined {
+  const resolved = resolveDirectory(folder, environments);
+  if (!resolved) return undefined;
+  const { environment, directory } = resolved;
+  let checkoutPath =
+    environment.kind === "local" ? folder.checkoutRoot : undefined;
+  if (!checkoutPath && folder.git?.rootUri) {
+    const root = resolveDirectory({ uri: folder.git.rootUri }, environments);
+    if (root?.environment.id === environment.id) checkoutPath = root.directory;
+  }
+  if (checkoutPath) {
+    checkoutPath = path.posix.normalize(checkoutPath);
+    const normalized = path.posix.normalize(directory);
+    const parent = environment.caseSensitive
+      ? checkoutPath
+      : checkoutPath.toLowerCase();
+    const child = environment.caseSensitive
+      ? normalized
+      : normalized.toLowerCase();
+    if (
+      !path.posix.isAbsolute(checkoutPath) ||
+      (child !== parent && !child.startsWith(parent.replace(/\/$/, "") + "/"))
+    )
+      checkoutPath = undefined;
+  }
+  return { ...resolved, checkoutPath };
+}
+
+function resolveDirectory(
   folder: FolderReport,
   environments: Environment[],
 ): { environment: Environment; directory: string } | undefined {
@@ -68,7 +102,12 @@ export function validateReport(value: unknown): asserts value is SessionReport {
         (typeof f.canonicalPath !== "string" ||
           !f.canonicalPath.startsWith("/"))) ||
       (f.checkoutRoot !== undefined &&
-        (typeof f.checkoutRoot !== "string" || !f.checkoutRoot.startsWith("/")))
+        (typeof f.checkoutRoot !== "string" ||
+          !f.checkoutRoot.startsWith("/"))) ||
+      (f.git !== undefined &&
+        (!f.git ||
+          typeof f.git.rootUri !== "string" ||
+          f.git.rootUri.length > 16000))
     )
       throw new Error("目录报告格式无效");
 }

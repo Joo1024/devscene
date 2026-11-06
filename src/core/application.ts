@@ -3,11 +3,12 @@ import {
   Environment,
   Location,
   location,
+  locationReference,
+  ScanCache,
   Operation,
   Session,
   SessionReport,
   SESSION_TTL,
-  validateData,
 } from "./domain";
 import { Store } from "./persistence";
 import { Discovery, scanLocal, scanSSH } from "../integrations/discovery";
@@ -17,7 +18,7 @@ export class Application {
   sessions = new Map<string, Session>();
   operations = new Map<string, Operation>();
   private sessionLocations = new Map<string, Location>();
-  private scans = new Set<string>();
+  private scans = new Map<string, symbol>();
   constructor(
     readonly store: Store,
     readonly now: () => number = Date.now,
@@ -27,7 +28,8 @@ export class Application {
   }
   locations(): Location[] {
     const all = new Map<string, Location>();
-    for (const l of this.store.data.manualLocations) all.set(l.id, l);
+    for (const l of this.store.data.manualLocations)
+      all.set(l.id, { ...l, source: "manual", exists: null });
     for (const e of this.environments())
       for (const l of this.store.cache[e.id]?.locations ?? []) all.set(l.id, l);
     for (const l of this.sessionLocations.values())
@@ -56,35 +58,11 @@ export class Application {
         const l = location(e, directory, "session", null);
         this.sessionLocations.set(l.id, l);
         ids.add(l.id);
-        // Only a known checkout ancestor, or extension-provided checkout root, can add checkout membership.
-        const candidates = this.locations().filter(
-          (c) =>
-            c.environmentId === e.id &&
-            c.checkout &&
-            (l.id === c.id ||
-              (e.caseSensitive
-                ? directory
-                : directory.toLowerCase()
-              ).startsWith(
-                (e.caseSensitive ? c.path : c.path.toLowerCase()).replace(
-                  /\/$/,
-                  "",
-                ) + "/",
-              )),
-        );
-        const closest = candidates.sort(
-          (a, b) => b.path.length - a.path.length,
-        )[0];
-        if (closest) ids.add(closest.id);
-        if (folder.checkoutRoot && e.kind === "local") {
-          const root = location(e, folder.checkoutRoot, "session", null);
-          if (
-            directory === root.path ||
-            directory.startsWith(root.path.replace(/\/$/, "") + "/")
-          ) {
-            this.sessionLocations.set(root.id, root);
-            ids.add(root.id);
-          }
+        // Directory containment alone cannot establish checkout membership (nested repos/submodules).
+        if (resolved.checkoutPath) {
+          const root = location(e, resolved.checkoutPath, "session", null);
+          this.sessionLocations.set(root.id, root);
+          ids.add(root.id);
         }
       } catch {
         unresolved.push(folder.uri);
@@ -290,50 +268,74 @@ export class Application {
     const e = this.environments().find((e) => e.id === id);
     if (!e) throw new Error("环境不存在");
     if (this.scans.has(id)) throw new Error("此环境正在扫描");
-    this.scans.add(id);
+    const token = Symbol(id);
+    this.scans.set(id, token);
     const previous = this.store.cache[id] ?? {
       locations: [],
       status: "unknown" as const,
       errors: [],
     };
     try {
-      const found = await (
-        adapter ?? (e.kind === "local" ? scanLocal : scanSSH)
-      )(e);
-      // Partial scans never erase the last successful snapshot.
-      this.store.cache[id] = found.errors.length
-        ? {
-            ...previous,
-            locations: [
-              ...new Map(
-                [...previous.locations, ...found.locations].map((l) => [
-                  l.id,
-                  l,
-                ]),
-              ).values(),
-            ],
-            status: "error",
-            errors: found.errors,
-          }
-        : {
-            locations: found.locations,
-            status: "online",
-            lastSuccess: this.now(),
-            errors: [],
-          };
-    } catch (err) {
-      this.store.cache[id] = {
-        ...previous,
-        status: e.kind === "ssh" ? "offline" : "error",
-        errors: [String(err)],
-      };
+      let next: ScanCache;
+      try {
+        const found = await (
+          adapter ?? (e.kind === "local" ? scanLocal : scanSSH)
+        )(structuredClone(e));
+        next = found.errors.length
+          ? {
+              ...previous,
+              locations: [
+                ...new Map(
+                  [...previous.locations, ...found.locations].map((l) => [
+                    l.id,
+                    l,
+                  ]),
+                ).values(),
+              ],
+              status: "error",
+              errors: found.errors,
+            }
+          : {
+              locations: found.locations,
+              status: "online",
+              lastSuccess: this.now(),
+              errors: [],
+            };
+      } catch (err) {
+        next = {
+          ...previous,
+          status: e.kind === "ssh" ? "offline" : "error",
+          errors: [String(err)],
+        };
+      }
+      // Import/edit invalidates this token. Neither old successes nor failures may write back.
+      if (this.scans.get(id) !== token) return;
+      this.store.cache[id] = next;
+      this.store.saveCache();
+      for (const session of this.activeSessions())
+        Object.assign(session, this.associate(session));
     } finally {
-      this.scans.delete(id);
+      // A newer scan may already be running for the same environment.
+      if (this.scans.get(id) === token) this.scans.delete(id);
     }
-    this.store.saveCache();
-    for (const session of this.activeSessions())
-      Object.assign(session, this.associate(session));
   }
+  importOrganization(value: unknown): void {
+    this.store.import(value);
+    this.scans.clear();
+    this.sessions.clear();
+    this.sessionLocations.clear();
+    for (const op of this.operations.values())
+      if (["pending", "accepted"].includes(op.state)) {
+        op.state = "failed";
+        op.message = "配置已导入，原目标关联已失效";
+      }
+  }
+  deleteWorkset(id: string): void {
+    const next = this.store.export();
+    next.worksets = next.worksets.filter((w) => w.id !== id);
+    this.store.replace(next);
+  }
+
   saveEnvironment(value: Environment): void {
     const data = this.store.export();
     const existing = data.environments.findIndex((e) => e.id === value.id);
@@ -347,8 +349,13 @@ export class Application {
         throw new Error("环境身份规则不可修改；不同账号或命名空间请添加新环境");
       data.environments[existing] = value;
     } else data.environments.push(value);
-    this.store.data = validateData(data);
-    this.store.save();
+    this.store.replace(data);
+    this.scans.delete(value.id);
+    const cache = this.store.cache[value.id];
+    if (cache) {
+      cache.status = "unknown";
+      this.store.saveCache();
+    }
     for (const session of this.activeSessions())
       Object.assign(session, this.associate(session));
   }
@@ -356,10 +363,9 @@ export class Application {
     const next = this.store.export();
     next.manualLocations = [
       ...next.manualLocations.filter((x) => x.id !== l.id),
-      { ...l, source: "manual" },
+      locationReference(l),
     ];
-    this.store.data = validateData(next);
-    this.store.save();
+    this.store.replace(next);
   }
   saveWorkset(name: string, ids: string[], id: string = randomUUID()): void {
     if (!name.trim()) throw new Error("请输入工作集名称");
@@ -368,14 +374,13 @@ export class Application {
       const l = this.locations().find((l) => l.id === lid);
       if (!l) throw new Error("位置不存在");
       if (!next.manualLocations.some((x) => x.id === lid))
-        next.manualLocations.push({ ...l, source: "manual" });
+        next.manualLocations.push(locationReference(l));
     }
     next.worksets = [
       ...next.worksets.filter((w) => w.id !== id),
       { id, name: name.trim(), locationIds: [...new Set(ids)] },
     ];
-    this.store.data = validateData(next);
-    this.store.save();
+    this.store.replace(next);
   }
   snapshot() {
     this.sweep();
@@ -389,7 +394,7 @@ export class Application {
       worksets: this.store.data.worksets,
       cache: this.store.cache,
       operations: [...this.operations.values()],
-      scanning: [...this.scans],
+      scanning: [...this.scans.keys()],
       warnings: this.store.warnings,
     };
   }

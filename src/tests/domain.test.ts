@@ -56,3 +56,43 @@ test("invalid and cross-environment alias references are rejected", () => {
   invalid.environments[0].id = "__proto__";
   assert.throws(() => validateData(invalid));
 });
+
+test("v1 organization migration keeps identity and worksets, backs up the original, and drops stale facts", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "workscene-migration-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const data = initialData(),
+    e = data.environments[0],
+    l = location(e, "/repo", "manual");
+  l.checkout = {
+    repositoryId: identity(e, "/repo/.git"),
+    commonDir: "/repo/.git",
+    root: "/repo",
+    kind: "main",
+    branch: "old",
+    head: "abc",
+  };
+  const legacy = {
+    ...data,
+    version: 1,
+    manualLocations: [l],
+    worksets: [{ id: "w", name: "Task", locationIds: [l.id] }],
+  };
+  fs.writeFileSync(path.join(dir, "organization.json"), JSON.stringify(legacy));
+  const store = new Store(dir);
+  assert.equal(store.data.version, 2);
+  assert.equal(store.data.manualLocations[0].id, l.id);
+  assert.equal("checkout" in store.data.manualLocations[0], false);
+  assert.equal("exists" in store.data.manualLocations[0], false);
+  assert.deepEqual(
+    JSON.parse(
+      fs.readFileSync(
+        path.join(dir, "organization.before-migration-v1.json"),
+        "utf8",
+      ),
+    ),
+    legacy,
+  );
+  assert.deepEqual(store.data.worksets, legacy.worksets);
+  store.import(legacy);
+  assert.equal(store.data.version, 2);
+});

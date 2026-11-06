@@ -38,10 +38,14 @@ export type ScanCache = {
   errors: string[];
 };
 export type Workset = { id: string; name: string; locationIds: string[] };
+export type LocationReference = Pick<
+  Location,
+  "id" | "environmentId" | "path" | "name"
+>;
 export type UserData = {
-  version: 1;
+  version: 2;
   environments: Environment[];
-  manualLocations: Location[];
+  manualLocations: LocationReference[];
   worksets: Workset[];
 };
 export type FolderReport = {
@@ -116,7 +120,7 @@ export function location(
 }
 export function initialData(): UserData {
   return {
-    version: 1,
+    version: 2,
     environments: [
       {
         id: randomUUID(),
@@ -136,7 +140,7 @@ export function validateData(value: unknown): UserData {
   const v = value as UserData;
   if (
     !v ||
-    v.version !== 1 ||
+    ![1, 2].includes(v.version) ||
     !Array.isArray(v.environments) ||
     !Array.isArray(v.manualLocations) ||
     !Array.isArray(v.worksets)
@@ -194,22 +198,10 @@ export function validateData(value: unknown): UserData {
       l.path.length > 16000 ||
       typeof l.name !== "string" ||
       !l.name ||
-      !["manual", "scan", "session"].includes(l.source) ||
-      ![true, false, null].includes(l.exists) ||
       l.id !== identity(e, l.path) ||
       locIds.has(l.id)
     )
       throw new Error("位置身份或环境无效");
-    if (
-      l.checkout &&
-      (typeof l.checkout.commonDir !== "string" ||
-        l.checkout.repositoryId !== identity(e, l.checkout.commonDir) ||
-        l.checkout.root !== l.path ||
-        !["main", "worktree"].includes(l.checkout.kind) ||
-        typeof l.checkout.branch !== "string" ||
-        typeof l.checkout.head !== "string")
-    )
-      throw new Error("Checkout 元数据无效");
     locIds.add(l.id);
   }
   const wsIds = new Set<string>();
@@ -228,5 +220,47 @@ export function validateData(value: unknown): UserData {
       throw new Error("工作集引用无效");
     wsIds.add(w.id);
   }
-  return structuredClone(v);
+  // v1 stored discovery snapshots with references. Migrate by retaining identity only.
+  return structuredClone({
+    version: 2 as const,
+    environments: v.environments,
+    manualLocations: v.manualLocations.map(locationReference),
+    worksets: v.worksets,
+  });
+}
+
+export function locationReference(l: LocationReference): LocationReference {
+  return {
+    id: l.id,
+    environmentId: l.environmentId,
+    path: l.path,
+    name: l.name,
+  };
+}
+
+export function validateLocationSnapshot(
+  l: Location,
+  environments: Environment[],
+): void {
+  const e = environments.find((e) => e.id === l?.environmentId);
+  if (
+    !e ||
+    typeof l.path !== "string" ||
+    typeof l.name !== "string" ||
+    !l.name ||
+    l.id !== identity(e, l.path) ||
+    !["manual", "scan", "session"].includes(l.source) ||
+    ![true, false, null].includes(l.exists)
+  )
+    throw new Error("位置缓存无效");
+  if (
+    l.checkout &&
+    (typeof l.checkout.commonDir !== "string" ||
+      l.checkout.repositoryId !== identity(e, l.checkout.commonDir) ||
+      l.checkout.root !== l.path ||
+      !["main", "worktree"].includes(l.checkout.kind) ||
+      typeof l.checkout.branch !== "string" ||
+      typeof l.checkout.head !== "string")
+  )
+    throw new Error("Checkout 缓存无效");
 }

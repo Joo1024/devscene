@@ -50,9 +50,13 @@ test("no extension means unknown; multi-root and multiple windows count unique i
   };
   app.store.cache[local.id] = { locations: [l], status: "online", errors: [] };
   assert.equal(app.snapshot().sessions.length, 0);
-  app.report(
-    report("session-111", ["file:///code/repo/a", "file:///code/repo/b"]),
-  );
+  app.report({
+    ...report("session-111", ["file:///code/repo/a", "file:///code/repo/b"]),
+    folders: ["a", "b"].map((name) => ({
+      uri: `file:///code/repo/${name}`,
+      checkoutRoot: "/code/repo",
+    })),
+  });
   assert.equal(app.activeSessions().length, 1);
   assert.equal(
     app.activeSessions()[0].locationIds.filter((id) => id === l.id).length,
@@ -241,4 +245,156 @@ test("workset persists session-discovered locations through expiry and export/im
   store.import(data);
   assert.equal(store.data.worksets[0].locationIds[0], l);
   assert.equal(store.data.manualLocations[0].id, l);
+});
+
+test("nested checkouts never associate an ancestor by containment, even with incomplete scans", (t) => {
+  const { app, local } = setup(t);
+  const outer = location(local, "/projects/outer", "scan");
+  outer.checkout = {
+    repositoryId: "outer",
+    commonDir: outer.path + "/.git",
+    root: outer.path,
+    kind: "main",
+    branch: "main",
+    head: "a",
+  };
+  app.store.cache[local.id] = {
+    locations: [outer],
+    status: "online",
+    errors: [],
+  };
+  const folder = {
+    uri: "file:///projects/outer/nested/src",
+    checkoutRoot: "/projects/outer/nested",
+  };
+  const s = app.report({ ...report(), folders: [folder] });
+  assert.ok(!s.locationIds.includes(outer.id));
+  assert.ok(
+    s.locationIds.includes(location(local, folder.checkoutRoot, "session").id),
+  );
+  assert.throws(() => app.requestActivation(s.instanceId, outer.id));
+  const unknown = app.report({
+    ...report("session-unknown"),
+    folders: [{ uri: folder.uri }],
+  });
+  assert.equal(
+    unknown.locationIds.length,
+    1,
+    "no checkout evidence means exact directory only",
+  );
+  assert.ok(!unknown.locationIds.includes(outer.id));
+});
+
+test("checkout metadata must match the location environment and path boundary", (t) => {
+  const { app, local } = setup(t);
+  const ssh = {
+    ...local,
+    id: "ssh",
+    kind: "ssh" as const,
+    target: "build",
+    aliases: ["build"],
+  };
+  app.saveEnvironment(ssh);
+  const remoteFolder = {
+    uri: "vscode-remote://ssh-remote+build/srv/repo/src",
+    git: { rootUri: "vscode-remote://ssh-remote+build/srv/repo" },
+  };
+  const s = app.report({ ...report(), folders: [remoteFolder] });
+  assert.ok(s.locationIds.includes(location(ssh, "/srv/repo", "session").id));
+  const cross = app.report({
+    ...report("session-cross"),
+    folders: [{ ...remoteFolder, git: { rootUri: "file:///srv/repo" } }],
+  });
+  assert.equal(cross.locationIds.length, 1);
+  const unrelated = app.report({
+    ...report("session-wrong-root"),
+    folders: [{ uri: "file:///repo-other/src", checkoutRoot: "/repo" }],
+  });
+  assert.equal(unrelated.locationIds.length, 1);
+});
+
+test("editing scan scope discards old results without cancelling a newer scan", async (t) => {
+  const { app, local, store } = setup(t);
+  let finishOld!: (d: {
+    locations: ReturnType<typeof location>[];
+    errors: string[];
+  }) => void;
+  let finishNew!: typeof finishOld;
+  const old = app.scan(
+    local.id,
+    () =>
+      new Promise((resolve) => {
+        finishOld = resolve;
+      }),
+  );
+  app.saveEnvironment({ ...local, roots: ["/new"] });
+  const fresh = app.scan(
+    local.id,
+    () =>
+      new Promise((resolve) => {
+        finishNew = resolve;
+      }),
+  );
+  finishOld({ locations: [location(local, "/old/repo", "scan")], errors: [] });
+  await old;
+  assert.deepEqual(app.snapshot().scanning, [local.id]);
+  assert.equal(store.cache[local.id], undefined);
+  finishNew({ locations: [location(local, "/new/repo", "scan")], errors: [] });
+  await fresh;
+  assert.deepEqual(
+    app.locations().map((l) => l.path),
+    ["/new/repo"],
+  );
+  assert.deepEqual(app.snapshot().scanning, []);
+});
+
+test("import invalidates both successes and failures from an old environment namespace", async (t) => {
+  for (const failure of [false, true]) {
+    const { app, local, store } = setup(t);
+    const remote = {
+      ...local,
+      id: "ssh",
+      kind: "ssh" as const,
+      target: "old-host",
+      aliases: ["old-host"],
+    };
+    app.saveEnvironment(remote);
+    let resolve!: (d: {
+      locations: ReturnType<typeof location>[];
+      errors: string[];
+    }) => void;
+    let reject!: (err: Error) => void;
+    const old = app.scan(
+      remote.id,
+      () =>
+        new Promise((yes, no) => {
+          resolve = yes;
+          reject = no;
+        }),
+    );
+    const imported = store.export();
+    imported.environments[1] = {
+      ...remote,
+      target: "new-host",
+      aliases: ["new-host"],
+    };
+    app.importOrganization(imported);
+    await app.scan(remote.id, async () => ({
+      locations: [location(remote, "/new/repo", "scan")],
+      errors: [],
+    }));
+    if (failure) reject(new Error("old host offline"));
+    else
+      resolve({
+        locations: [location(remote, "/old/repo", "scan")],
+        errors: [],
+      });
+    await old;
+    assert.equal(store.cache.ssh.status, "online");
+    assert.deepEqual(
+      app.locations().map((l) => l.path),
+      ["/new/repo"],
+    );
+    assert.equal(app.environments()[1].target, "new-host");
+  }
 });
