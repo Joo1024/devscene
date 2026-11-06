@@ -5,3 +5,4 @@ work/
 extension/out/
 *.log
 .DS_Store
+extension/LICENSE

@@ -13,7 +13,11 @@
     "package:extension": "npm run build && cd extension && vsce package --no-dependencies --allow-missing-repository -o ../release/workscene-connector.vsix",
     "package:mac": "npm run package:extension && electron-builder --mac dir zip --publish never",
     "package:linux": "npm run package:extension && electron-builder --linux dir --publish never",
-    "check": "npm test && npm run package:extension"
+    "check": "npm test && npm run package:extension",
+    "test:e2e": "npm run package:extension && node scripts/e2e.mjs",
+    "test:installed": "node scripts/installed-smoke.mjs",
+    "format": "prettier --write src scripts docs .github README.md package.json tsconfig.json extension/package.json extension/README.md",
+    "format:check": "prettier --check src scripts docs .github README.md package.json tsconfig.json extension/package.json extension/README.md"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
@@ -22,6 +26,7 @@
     "@vscode/vsce": "^3.6.0",
     "electron": "^40.0.0",
     "electron-builder": "^26.0.12",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.0"
   },
   "build": {
@@ -50,5 +55,8 @@
         "zip"
       ]
     }
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }
