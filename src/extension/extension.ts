@@ -4,7 +4,35 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { Operation, SessionReport } from "../core/domain";
+
+const exec = promisify(execFile);
+async function localCheckoutRoot(
+  directory: string,
+): Promise<string | undefined> {
+  try {
+    // Git's UI API can omit repositories above the workspace or undiscovered nested repos.
+    // Query the actual directory rather than treating an API-known ancestor as proof.
+    const { stdout } = await exec(
+      "git",
+      ["-C", directory, "rev-parse", "--show-toplevel"],
+      {
+        timeout: 2000,
+        maxBuffer: 64 * 1024,
+        env: {
+          ...process.env,
+          GIT_OPTIONAL_LOCKS: "0",
+          GIT_TERMINAL_PROMPT: "0",
+        },
+      },
+    );
+    return await fs.realpath(stdout.replace(/\r?\n$/, ""));
+  } catch {
+    return undefined;
+  }
+}
 
 type Connection = {
   protocol: 1;
@@ -140,23 +168,22 @@ export async function activate(context: vscode.ExtensionContext) {
           .sort(
             (a: any, b: any) => b.rootUri.path.length - a.rootUri.path.length,
           )[0];
-        const checkoutRoot =
-          repo?.rootUri.scheme === "file"
-            ? await fs
-                .realpath(repo.rootUri.fsPath)
-                .catch(() => repo.rootUri.fsPath)
-            : undefined;
+        const checkoutRoot = canonicalPath
+          ? await localCheckoutRoot(canonicalPath)
+          : undefined;
         return {
           uri: f.uri.toString(),
           canonicalPath,
           checkoutRoot,
-          git: repo
-            ? {
-                rootUri: repo.rootUri.toString(),
-                branch: repo.state?.HEAD?.name,
-                head: repo.state?.HEAD?.commit,
-              }
-            : undefined,
+          git:
+            repo &&
+            (f.uri.scheme !== "file" || repo.rootUri.fsPath === checkoutRoot)
+              ? {
+                  rootUri: repo.rootUri.toString(),
+                  branch: repo.state?.HEAD?.name,
+                  head: repo.state?.HEAD?.commit,
+                }
+              : undefined,
         };
       }),
     );

@@ -5,13 +5,30 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import vm from "node:vm";
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { Application } from "../core/application";
 import { Store, atomicWrite } from "../core/persistence";
 import { startBridge } from "../integrations/bridge";
 
 // Runs the actual compiled connector with a small VS Code API mock and real loopback servers.
 // Only its interval/clock are controlled: no mock of the retry logic or application protocol.
-async function harness(t: { after(fn: () => Promise<void>): void }) {
+function folder(directory: string) {
+  return {
+    uri: {
+      scheme: "file",
+      authority: "",
+      path: directory,
+      fsPath: directory,
+      toString: () => pathToFileURL(directory).href,
+    },
+  };
+}
+async function harness(
+  t: { after(fn: () => Promise<void>): void },
+  folders: ReturnType<typeof folder>[] = [],
+  staleGitRoot?: string,
+) {
   const base = fs.mkdtempSync(
     path.join(os.tmpdir(), "workscene-connector-test-"),
   );
@@ -96,9 +113,26 @@ async function harness(t: { after(fn: () => Promise<void>): void }) {
     UIKind: { Desktop: 1 },
     StatusBarAlignment: { Left: 1 },
     version: "1.145.2",
-    extensions: { getExtension: () => undefined },
+    extensions: {
+      getExtension: () =>
+        staleGitRoot
+          ? {
+              isActive: true,
+              exports: {
+                getAPI: () => ({
+                  repositories: [
+                    {
+                      rootUri: folder(staleGitRoot).uri,
+                      state: { HEAD: { name: "stale", commit: "abc" } },
+                    },
+                  ],
+                }),
+              },
+            }
+          : undefined,
+    },
     workspace: {
-      workspaceFolders: [],
+      workspaceFolders: folders,
       onDidChangeWorkspaceFolders: disposable,
     },
     window: {
@@ -136,7 +170,10 @@ async function harness(t: { after(fn: () => Promise<void>): void }) {
       module,
       exports: module.exports,
       require: (name: string) => (name === "vscode" ? vscode : require(name)),
-      process: { platform: "linux", env: { XDG_CONFIG_HOME: base } },
+      process: {
+        platform: "linux",
+        env: { ...process.env, XDG_CONFIG_HOME: base },
+      },
       Date: Clock,
       setTimeout,
       clearTimeout,
@@ -270,4 +307,30 @@ test("a response cut mid-body does not leave the connector busy forever", async 
   assert.equal(first.state, "activated");
   assert.equal(next.state, "activated");
   assert.equal(h.commands, 2);
+});
+
+test("local checkout reporting uses real Git when the Git API is absent or only knows a parent", async (t) => {
+  const base = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "workscene-checkout-report-")),
+  );
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const outer = path.join(base, "outer"),
+    nested = path.join(outer, "nested"),
+    source = path.join(nested, "src");
+  fs.mkdirSync(source, { recursive: true });
+  execFileSync("git", ["init", "-q", outer]);
+  execFileSync("git", ["init", "-q", nested]);
+  for (const apiRoot of [undefined, outer]) {
+    const h = await harness(t, [folder(source)], apiRoot);
+    const reported = h.app.activeSessions()[0].folders[0];
+    assert.equal(reported.checkoutRoot, nested);
+    assert.equal(reported.git, undefined);
+    assert.deepEqual(
+      h.app
+        .locations()
+        .map((l) => l.path)
+        .sort(),
+      [nested, source].sort(),
+    );
+  }
 });
