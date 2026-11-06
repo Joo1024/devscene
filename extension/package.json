@@ -1,0 +1,10 @@
+{
+  "name": "connector", "displayName": "WorkScene Connector", "publisher": "workscene",
+  "description": "Connect this VS Code Stable window to the local WorkScene app",
+  "version": "0.1.0", "engines": { "vscode": "^1.100.0" },
+  "categories": ["Other"], "extensionKind": ["ui"],
+  "activationEvents": ["onStartupFinished"], "main": "./out/extension.js",
+  "capabilities": { "untrustedWorkspaces": { "supported": true }, "virtualWorkspaces": { "supported": true } },
+  "contributes": { "commands": [{ "command": "workscene.status", "title": "WorkScene: Show Connection Status" }] },
+  "license": "MIT"
+}

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'"><title>WorkScene</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<aside class="sidebar">
+  <div class="brand"><span class="brand-icon">W</span><div>WorkScene<small>你的开发现场</small></div></div>
+  <div class="nav-label">工作空间</div>
+  <nav><button data-view="locations" class="active">▦ <span>全部位置</span><i id="nav-count">0</i></button><button data-view="sessions">▣ <span>已连接窗口</span><i id="nav-sessions">0</i></button></nav>
+  <div class="nav-label workset-label">工作集 <button id="new-workset" title="新建工作集">＋</button></div>
+  <div id="worksets"></div>
+  <div class="sidebar-bottom"><button data-view="environments">◎ 环境与扫描</button><button data-view="setup">⌁ 接入与诊断</button><div class="local-note"><span class="dot"></span> 本地优先 · 数据留在你的设备</div></div>
+</aside>
+<main>
+  <header><div class="breadcrumb">工作空间 <span>/</span> <b id="breadcrumb">全部位置</b></div><div class="header-actions"><button id="export">导出配置</button><button id="import">导入</button></div></header>
+  <section class="heading"><div><div class="eyebrow">PICK UP WHERE YOU LEFT OFF</div><h1 id="title">回到你的工作现场</h1><p id="subtitle">发现散落的代码目录，把正在做的事放在一起。</p></div><button class="primary" id="add-location">＋ 添加目录</button></section>
+  <section class="stats"><div><span>已知位置</span><strong id="location-count">0</strong><small>目录与 checkout</small></div><div><span>已连接的 VS Code 窗口</span><strong id="window-count">0</strong><small id="connection-note">尚未检测到有效会话</small></div><div><span>工作集</span><strong id="workset-count">0</strong><small>按工作内容组织</small></div></section>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <section class="toolbar" id="toolbar"><label class="search">⌕ <input id="search" placeholder="搜索目录、路径、分支或工作集…" aria-label="搜索位置"></label><select id="environment-filter" aria-label="环境筛选"><option value="">全部环境</option></select><select id="session-filter" aria-label="会话状态筛选"><option value="">全部会话状态</option><option value="connected">已连接窗口</option><option value="unknown">尚未检测到会话</option></select><button id="rescan">↻ 扫描</button></section>
+  <div class="content" id="content"></div>
+  <footer><span id="footer-status">仅统计已接入扩展的 VS Code 稳定版窗口</span><span>WorkScene · 0.1</span></footer>
+</main>
+<dialog id="editor"><form id="editor-form"><div class="dialog-heading"><h2 id="editor-title"></h2><button type="button" id="close-dialog" aria-label="关闭">×</button></div><div id="editor-body"></div><div class="dialog-actions"><button type="button" id="cancel-dialog">取消</button><button class="primary" type="submit">保存</button></div><p id="form-error" class="error" role="alert"></p></form></dialog>
+<script src="renderer.js"></script></body></html>

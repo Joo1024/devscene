@@ -1,11 +1,14 @@
 {
-  "name": "workscene", "version": "0.1.0", "private": true,
+  "name": "workscene",
+  "version": "0.1.0",
+  "private": true,
   "description": "Discover, organize, and return to development workspaces",
-  "author": "WorkScene contributors", "license": "MIT",
+  "author": "WorkScene contributors",
+  "license": "MIT",
   "main": "dist/desktop/main.js",
   "scripts": {
     "build": "tsc && node scripts/assets.mjs",
-    "test": "npm run build && node --test dist/tests/*.test.js",
+    "test": "npm run build && node --test --test-isolation=none dist/tests/*.test.js",
     "start": "npm run build && electron .",
     "package:extension": "npm run build && cd extension && vsce package --no-dependencies --allow-missing-repository -o ../release/workscene-connector.vsix",
     "package:mac": "npm run package:extension && electron-builder --mac dir zip --publish never",
@@ -13,14 +16,39 @@
     "check": "npm test && npm run package:extension"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0", "@types/vscode": "^1.100.0", "@vscode/vsce": "^3.6.0",
-    "electron": "^40.0.0", "electron-builder": "^26.0.12", "typescript": "^5.9.0"
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^3.6.0",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.9.0"
   },
   "build": {
-    "appId": "dev.workscene.desktop", "productName": "WorkScene",
-    "directories": { "output": "release" },
-    "files": ["dist/core/**", "dist/integrations/**", "dist/desktop/**", "dist/presentation/**", "package.json"],
-    "extraResources": [{ "from": "release/workscene-connector.vsix", "to": "workscene-connector.vsix" }],
-    "mac": { "category": "public.app-category.developer-tools", "target": ["dir", "zip"] }
+    "appId": "dev.workscene.desktop",
+    "productName": "WorkScene",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/core/**",
+      "dist/integrations/**",
+      "dist/desktop/**",
+      "dist/presentation/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "release/workscene-connector.vsix",
+        "to": "workscene-connector.vsix"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dir",
+        "zip"
+      ]
+    }
   }
 }
