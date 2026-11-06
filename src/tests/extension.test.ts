@@ -27,7 +27,7 @@ function folder(directory: string) {
 async function harness(
   t: { after(fn: () => Promise<void>): void },
   folders: ReturnType<typeof folder>[] = [],
-  staleGitRoot?: string,
+  staleGitRoot?: string | ReturnType<typeof folder>["uri"],
 ) {
   const base = fs.mkdtempSync(
     path.join(os.tmpdir(), "workscene-connector-test-"),
@@ -122,7 +122,10 @@ async function harness(
                 getAPI: () => ({
                   repositories: [
                     {
-                      rootUri: folder(staleGitRoot).uri,
+                      rootUri:
+                        typeof staleGitRoot === "string"
+                          ? folder(staleGitRoot).uri
+                          : staleGitRoot,
                       state: { HEAD: { name: "stale", commit: "abc" } },
                     },
                   ],
@@ -333,4 +336,23 @@ test("local checkout reporting uses real Git when the Git API is absent or only 
       [nested, source].sort(),
     );
   }
+});
+
+test("remote subdirectories do not report a checkout root inferred from an API-known ancestor", async (t) => {
+  const remote = (directory: string) => ({
+    uri: {
+      ...folder(directory).uri,
+      scheme: "vscode-remote",
+      authority: "ssh-remote+build",
+      toString: () => `vscode-remote://ssh-remote+build${directory}`,
+    },
+  });
+  const h = await harness(
+    t,
+    [remote("/outer/nested/src")],
+    remote("/outer").uri,
+  );
+  const report = h.app.activeSessions()[0].folders[0];
+  assert.equal(report.checkoutRoot, undefined);
+  assert.equal(report.git, undefined);
 });

@@ -163,7 +163,8 @@ export async function activate(context: vscode.ExtensionContext) {
               r.rootUri.scheme === f.uri.scheme &&
               r.rootUri.authority === f.uri.authority &&
               (f.uri.path === r.rootUri.path ||
-                f.uri.path.startsWith(r.rootUri.path + "/")),
+                (f.uri.scheme === "file" &&
+                  f.uri.path.startsWith(r.rootUri.path + "/"))),
           )
           .sort(
             (a: any, b: any) => b.rootUri.path.length - a.rootUri.path.length,
