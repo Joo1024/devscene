@@ -137,7 +137,7 @@ try {
     env,
     timeout: 30000,
   });
-  const page = await desktop.firstWindow();
+  let page = await desktop.firstWindow();
   const errors = [];
   page.on("pageerror", (err) => errors.push(String(err)));
   await page.waitForSelector("#location-count");
@@ -186,16 +186,18 @@ try {
     "workset saved",
   );
   mark("Real desktop form creates workset");
+  const checkout = (await snapshot()).locations.find((l) => l.path === repo);
   launchCode(workspace);
   const first = await wait(
     async () => {
       const s = (await snapshot()).sessions;
-      return s.find((x) => x.folders.length === 2);
+      return s.find(
+        (x) => x.folders.length === 2 && x.locationIds.includes(checkout.id),
+      );
     },
     "first real multi-root VS Code report",
     90000,
   );
-  const checkout = (await snapshot()).locations.find((l) => l.path === repo);
   assert.equal(first.locationIds.filter((id) => id === checkout.id).length, 1);
   assert.equal((await snapshot()).sessions.length, 1);
   mark("Real multi-root VS Code window counts once for checkout", {
@@ -255,15 +257,87 @@ try {
     90000,
   );
   mark("Open-in-new-window launches VS Code and waits for actual report");
-  const final = await snapshot();
-  assert.equal(final.sessions.length, 4);
+  const nested = path.join(repo, "nested");
+  const nestedSource = path.join(nested, "src");
+  await mkdir(nestedSource, { recursive: true });
+  execFileSync("git", ["init", "-q", nested]);
+  launchCode(nestedSource);
+  const nestedSession = await wait(
+    async () => {
+      const state = await snapshot();
+      return state.sessions.find((s) =>
+        s.folders.some(
+          (f) => f.canonicalPath === nestedSource && f.checkoutRoot === nested,
+        ),
+      );
+    },
+    "real nested repository checkout metadata",
+    90000,
+  );
+  assert.ok(!nestedSession.locationIds.includes(checkout.id));
+  const nestedLocation = (await snapshot()).locations.find(
+    (l) => l.path === nested,
+  );
+  assert.ok(nestedSession.locationIds.includes(nestedLocation.id));
+  mark(
+    "Nested repository discovered by extension never counts as its scanned parent",
+  );
+  const beforeRestart = (await snapshot()).sessions
+    .map((s) => s.instanceId)
+    .sort();
+  await desktop.close();
+  desktop = await electron.launch({
+    args: ["--no-sandbox", root],
+    env,
+    timeout: 30000,
+  });
+  page = await desktop.firstWindow();
+  page.on("pageerror", (err) => errors.push(String(err)));
+  await page.waitForSelector("#location-count");
+  await wait(
+    async () => (await snapshot()).sessions.length === 5,
+    "real windows reconnect after desktop restart",
+    30000,
+  );
+  assert.deepEqual(
+    (await snapshot()).sessions.map((s) => s.instanceId).sort(),
+    beforeRestart,
+  );
   await desktop.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0];
     w.show();
     w.focus();
   });
   await wait(
-    async () => (await page.locator("#window-count").textContent()) === "4",
+    async () => (await snapshot()).sessions.every((s) => !s.focused),
+    "desktop takes focus after restart",
+  );
+  const retry = await api("activate", {
+    sessionId: first.instanceId,
+    locationId: checkout.id,
+  });
+  const result = await wait(
+    async () => {
+      const op = (await snapshot()).operations.find((o) => o.id === retry.id);
+      return !["pending", "accepted"].includes(op.state) && op;
+    },
+    "activation after real desktop restart",
+    20000,
+  );
+  assert.equal(result.state, "activated", result.message);
+  mark(
+    "Existing real VS Code windows reconnect and activate after WorkScene restarts",
+  );
+  const final = await snapshot();
+  assert.equal(final.sessions.length, 5);
+  assert.equal(final.worksets.length, 1);
+  await desktop.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows()[0];
+    w.show();
+    w.focus();
+  });
+  await wait(
+    async () => (await page.locator("#window-count").textContent()) === "5",
     "UI reflects all windows",
   );
   await page.locator("#search").fill("api");

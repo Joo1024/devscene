@@ -4,7 +4,7 @@
 
 ## 自动化核心回归
 
-`npm test`：15 项测试通过。测试位于 `src/tests/`，覆盖：
+0.1.1 的 `npm test`：28 项测试通过（初版为 15 项，新增审查回归见[修复记录](review-fixes.md)）。测试位于 `src/tests/`，覆盖：
 
 | 场景                                                     | 验证方式                                               |
 | -------------------------------------------------------- | ------------------------------------------------------ |
@@ -34,8 +34,10 @@
 5. 将 WorkScene 置于前台后，按目标 Session ID 请求激活第一个窗口；扩展执行命令并报告 `activated`，观察到目标窗口焦点。
 6. 第三个真实空窗口上报，目录列表为空。
 7. 通过应用 `open` 动作调用实际 VS Code CLI，在新窗口打开外部 worktree；收到第四个真实会话后才计数。
-8. 页面无 JavaScript 异常，保存首次使用与连接状态截图。
-9. 关闭真实 VS Code 进程后，会话在 TTL 内收敛为零，工作集仍保留。
+8. 扫描完成后在父仓库下建立独立的嵌套 Git 仓库，打开第五个真实窗口；扩展上报它的真实根，不计入父 checkout。
+9. 保持五个 VS Code 窗口运行，退出并重启 WorkScene；五个原实例重新连接，并能再次按实例准确激活。
+10. 页面无 JavaScript 异常，保存首次使用与连接状态截图。
+11. 关闭真实 VS Code 进程后，会话在 TTL 内收敛为零，工作集仍保留。
 
 初次测试使用 `--extensionDevelopmentPath` 时 VS Code 复用了开发窗口，因此该次多窗口检查失败；测试已改为安装实际 VSIX 并通过。此失败属于测试启动方式，不被记录成产品多窗口通过证据。
 
@@ -43,7 +45,7 @@
 
 ## 安装产物独立运行
 
-`scripts/installed-smoke.mjs` 把 `release/linux-unpacked/` 复制到 `/tmp/workscene-installed-*/app/`，从无关目录启动。确认 `app.isPackaged === true`、运行资源来自该目录的 `app.asar`、内置 VSIX 存在、IPC 添加目录与持久化工作、界面无异常。证据在 `work/installed-evidence.json`。ASAR 只包含编译后的应用模块、界面、远端脚本与 package.json，不包含测试、开发配置、用户机器配置或开发者绝对路径。
+`scripts/installed-smoke.mjs` 把 `release/linux-unpacked/` 复制到 `/tmp/workscene-installed-*/app/`，从无关目录启动。安装验证还预置了 v1 组织数据，确认自动备份并迁移到 v2，工作集保留而旧分支/存在状态不复活。确认 `app.isPackaged === true`、运行资源来自该目录的 `app.asar`、内置 VSIX 存在、IPC 添加目录与持久化工作、界面无异常。证据在 `work/installed-evidence.json`。ASAR 只包含编译后的应用模块、界面、远端脚本与 package.json，不包含测试、开发配置、用户机器配置或开发者绝对路径。
 
 macOS Intel 与 Apple Silicon 的 `.app` 和 ZIP 在 Linux 上交叉打包成功。**这不等于 macOS 实机启动、签名、公证或系统窗口焦点验证通过。**
 
@@ -67,11 +69,11 @@ macOS Intel 与 Apple Silicon 的 `.app` 和 ZIP 在 Linux 上交叉打包成功
 
 | 产物                     | 实际路径                                                    |
 | ------------------------ | ----------------------------------------------------------- |
-| Apple Silicon 未签名 ZIP | `/workspace/devscene/release/WorkScene-0.1.0-arm64-mac.zip` |
-| Intel 未签名 ZIP         | `/workspace/devscene/release/WorkScene-0.1.0-mac.zip`       |
+| Apple Silicon 未签名 ZIP | `/workspace/devscene/release/WorkScene-0.1.1-arm64-mac.zip` |
+| Intel 未签名 ZIP         | `/workspace/devscene/release/WorkScene-0.1.1-mac.zip`       |
 | VS Code 扩展             | `/workspace/devscene/release/workscene-connector.vsix`      |
 | Linux 应用               | `/workspace/devscene/release/linux-unpacked/workscene`      |
-| 最终真实窗口运行证据     | `/workspace/devscene/work/e2e-1793981458994/evidence.json`  |
+| 最终真实窗口运行证据     | `/workspace/devscene/work/e2e-1793983346450/evidence.json`  |
 | 最终独立安装运行证据     | `/workspace/devscene/work/installed-evidence.json`          |
 
 可随源码审阅的证据：[真实窗口 JSON](evidence/real-vscode-windows.json)、[安装运行 JSON](evidence/installed-app.json)、[连接状态截图](evidence/connected.png)、[首次使用截图](evidence/first-run.png)。它们不含接入令牌或 SSH 凭据。

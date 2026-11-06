@@ -1,6 +1,6 @@
 # WorkScene 本机接入协议 v1
 
-传输：`POST http://127.0.0.1:<随机端口>/v1/...`，JSON，`Authorization: Bearer <token>`。应用启动时原子写入标准用户数据目录的 `connection.json`：`{ "protocol":1, "port":12345, "token":"64位十六进制字符串" }`。本机 UI 扩展每次请求读取描述文件，因此桌面重启或令牌更新可自动恢复。此文件不得提交或导出。
+传输：`POST http://127.0.0.1:<随机端口>/v1/...`，JSON，`Authorization: Bearer <token>`。应用启动时原子写入标准用户数据目录的 `connection.json`：`{ "protocol":1, "brokerId":"服务实例 UUID", "port":12345, "token":"64位十六进制字符串" }`。本机 UI 扩展每轮读取一次描述文件，并在该轮使用同一份连接快照。brokerId 或令牌变化时清除旧服务的回执与去重缓存，再重新上报；缺少 brokerId 的旧版描述文件使用令牌变化识别重启。此文件不得提交或导出。
 
 仅接收 VS Code 稳定版桌面扩展；`vscode.env.uriScheme === 'vscode'`。不同协议版本返回 400。无授权/浏览器 Origin/Host 不合法返回 401；方法错误 405；未知端点 404；报告最大 256 KiB。禁止对外绑定或将端口转发到远端。
 
@@ -29,7 +29,7 @@
 }
 ```
 
-`canonicalPath`、`checkoutRoot` 为可选可取得的本机元数据；当 Git API 可用时还上报 `git: {rootUri, branch?, head?}`，这些元数据不代替环境与路径身份。远端 URI 的环境必须通过显式别名映射。不能获取 Git API 时省略 checkout 信息，不猜测。工具所在环境始终是运行 UI 扩展的本机，目录可以属于其他环境。
+`canonicalPath`、`checkoutRoot` 为可选可取得的本机元数据；当 Git API 可用时还上报 `git: {rootUri, branch?, head?}`，这些元数据不代替环境与路径身份。远端 URI 的环境必须通过显式别名映射。本机 checkoutRoot 通过系统 Git 的只读查询获得（2 秒超时）；查询失败时省略。远端 Git API 不可用时省略 checkout 信息，不猜测。工具所在环境始终是运行 UI 扩展的本机，目录可以属于其他环境。
 
 服务端为 Session 增加 `source: extension`、`toolEnvironmentId`、`lastConfirmed`、`locationIds` 和 `unresolved`。收到报告的服务端时间就是心跳确认时间。工具版本/标题/文件更新不创建新实例；扩展重载产生新 UUID，旧会话正常退出或 35 秒后过期。
 
@@ -88,4 +88,6 @@ poll 返回 `{"requests":[...]}`，请求转为 `accepted`。扩展在所属窗�
 | failed      | 目标消失、关联改变、命令失败等，message 解释 |
 | timeout     | 有效期内未得到完整结果，执行事实可能未知     |
 
-每个请求只投递一次，扩展缓存已处理请求 ID；回执发送失败可重试，服务端终态不被重复回执覆盖。迟到结果不把超时改成成功。没有失败后自动新开窗口的路径。所有协议消息只用于已授权本机用户，不是给不可信公网客户端的 API。
+每个请求只投递一次，扩展缓存已处理请求 ID。每轮首先 poll，再独立提交和重试回执，某个回执失败不会阻止新请求、心跳或其他回执。网络/5xx 错误仅在请求有效期内重试；400/404/410/422 表示不能继续提交，该回执退出队列。已清理或属于旧服务的请求返回 HTTP 410，错误代码 `operation_gone`。服务端终态不被重复回执覆盖。迟到结果不把超时改成成功。没有失败后自动新开窗口的路径。所有协议消息只用于已授权本机用户，不是给不可信公网客户端的 API。
+
+认证必须匹配 ASCII `Bearer ` 加 64 位小写十六进制令牌，再比较 Buffer 字节长度和内容。非 ASCII、错误长度或错误令牌返回 401，不调用长度不匹配的 timingSafeEqual。

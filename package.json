@@ -1,6 +1,6 @@
 {
   "name": "workscene",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Discover, organize, and return to development workspaces",
   "author": "WorkScene contributors",

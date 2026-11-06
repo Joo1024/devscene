@@ -1,7 +1,7 @@
 {
-  "started": "2026-11-06T16:10:59.538Z",
+  "started": "2026-11-06T16:42:27.027Z",
   "platform": "linux",
-  "work": "/workspace/devscene/work/e2e-1793981458994",
+  "work": "/workspace/devscene/work/e2e-1793983346450",
   "checks": [
     {
       "name": "No extension starts with unknown session state"
@@ -17,7 +17,7 @@
     },
     {
       "name": "Real multi-root VS Code window counts once for checkout",
-      "instance": "a563eb6d-966d-4b09-90da-5ae120c1afb8",
+      "instance": "dd44b5c5-35cd-4ee3-abe4-b5ff8d41aff4",
       "version": "1.145.2",
       "capabilities": ["activateSession"]
     },
@@ -35,6 +35,12 @@
       "name": "Open-in-new-window launches VS Code and waits for actual report"
     },
     {
+      "name": "Nested repository discovered by extension never counts as its scanned parent"
+    },
+    {
+      "name": "Existing real VS Code windows reconnect and activate after WorkScene restarts"
+    },
+    {
       "name": "Renderer runs without JavaScript errors"
     },
     {
@@ -42,9 +48,9 @@
     }
   ],
   "final": {
-    "connectedWindows": 4,
-    "locations": 4,
+    "connectedWindows": 5,
+    "locations": 6,
     "worksets": 1
   },
-  "finished": "2026-11-06T16:11:50.445Z"
+  "finished": "2026-11-06T16:43:28.561Z"
 }

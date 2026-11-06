@@ -15,5 +15,6 @@ An executed command without observed focus is reported separately from confirmed
 
 The app and connector must run under the same local OS user. Install the extension locally,
 not only on the SSH server. For SSH locations, explicitly map the Remote SSH alias in WorkScene.
-Git metadata is read when available from VS Code's Git API; local canonical paths are resolved
-without running workspace code. Disable the extension to stop reporting, or uninstall it to disconnect.
+Local checkout roots are verified with the system Git's read-only `rev-parse --show-toplevel`
+command (2-second timeout), including when VS Code's Git API is absent or only knows a parent.
+Optional branch metadata is read from the Git API when it matches the root. No workspace code is run. Disable the extension to stop reporting, or uninstall it to disconnect.

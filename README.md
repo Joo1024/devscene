@@ -4,6 +4,8 @@
 
 本机与 SSH 目录发现、Git checkout / worktree、真实窗口会话、搜索筛选、工作集、配置导入导出与安装诊断均已实现。窗口总数只表示 **已连接扩展的 VS Code 窗口**。没有上报时显示“尚未检测到有效会话”，不会推断用户没有打开窗口。
 
+当前修复版本为 **0.1.1**，应用与 Connector 应一起升级。修复范围和复现对应关系见[审查修复记录](docs/review-fixes.md)。
+
 ## 构建与启动
 
 开发需要 Node.js 24 LTS、npm 和 Git。macOS 建议安装 Xcode Command Line Tools（`xcode-select --install`），并将 VS Code Stable 放到 `/Applications/Visual Studio Code.app`。
@@ -69,6 +71,8 @@ macOS 数据位于 `~/Library/Application Support/WorkScene/`；Linux 位于 `${
 | `organization.before-import.json` | 最近一次导入前的组织数据备份                   |
 | `discovery-cache.json`            | 环境的发现快照、状态和最后成功时间             |
 | `connection.json`                 | 当前本机回环端口与随机接入令牌，0600；退出删除 |
+
+组织数据使用 v2：工作集只保存位置身份，不保存过时的存在状态或 Git 分支。v1 文件首次加载前自动备份到 `organization.before-migration-v1.json`；也支持导入 v1 文件。没有发现事实的位置显示“存在状态待确认”。如需回退到 0.1.0，先退出应用，再从迁移前备份恢复 v1 文件；旧版不支持读取 v2 组织数据。
 
 会话和操作只在内存存在，不导出、不作为永久窗口事实。导出保留环境和位置身份；导入替换组织数据并自动备份，不会自动连接远端。换机器后必须在界面检查根目录与 SSH 别名，导入不会推测两个设备其实是同一机器。不要公开含私有路径或 SSH 主机信息的导出文件。
 

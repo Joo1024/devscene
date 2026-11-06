@@ -3,7 +3,7 @@
   "displayName": "WorkScene Connector",
   "publisher": "workscene",
   "description": "Connect this VS Code Stable window to the local WorkScene app",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "engines": {
     "vscode": "^1.100.0"
   },
