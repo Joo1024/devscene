@@ -1,0 +1,18 @@
+{
+  "platform": "linux",
+  "verified": "2026-11-06T16:12:30.767Z",
+  "isolated": "/tmp/workscene-installed-3XpcS6",
+  "info": {
+    "path": "/tmp/workscene-installed-3XpcS6/app/resources/app.asar",
+    "cwd": "/tmp/workscene-installed-3XpcS6/unrelated-working-directory"
+  },
+  "packaged": true,
+  "bundledExtension": "/tmp/workscene-installed-3XpcS6/app/resources/workscene-connector.vsix",
+  "checks": [
+    "launch copied app from unrelated cwd",
+    "no source runtime path",
+    "bundled VSIX exists",
+    "application IPC and persistence work",
+    "no renderer errors"
+  ]
+}

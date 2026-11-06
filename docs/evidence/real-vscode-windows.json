@@ -1,0 +1,50 @@
+{
+  "started": "2026-11-06T16:10:59.538Z",
+  "platform": "linux",
+  "work": "/workspace/devscene/work/e2e-1793981458994",
+  "checks": [
+    {
+      "name": "No extension starts with unknown session state"
+    },
+    {
+      "name": "Real desktop form adds a directory"
+    },
+    {
+      "name": "Desktop discovers main checkout and external worktree"
+    },
+    {
+      "name": "Real desktop form creates workset"
+    },
+    {
+      "name": "Real multi-root VS Code window counts once for checkout",
+      "instance": "a563eb6d-966d-4b09-90da-5ae120c1afb8",
+      "version": "1.145.2",
+      "capabilities": ["activateSession"]
+    },
+    {
+      "name": "Two real windows for same checkout count separately"
+    },
+    {
+      "name": "Targeted real VS Code instance confirms focus",
+      "result": "activated"
+    },
+    {
+      "name": "Real empty window reports without fabricated folders"
+    },
+    {
+      "name": "Open-in-new-window launches VS Code and waits for actual report"
+    },
+    {
+      "name": "Renderer runs without JavaScript errors"
+    },
+    {
+      "name": "Closing real VS Code processes converges without losing worksets"
+    }
+  ],
+  "final": {
+    "connectedWindows": 4,
+    "locations": 4,
+    "worksets": 1
+  },
+  "finished": "2026-11-06T16:11:50.445Z"
+}
