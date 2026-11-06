@@ -1,12 +1,13 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Application } from "../core/application";
 import { atomicWrite } from "../core/persistence";
 
 export async function startBridge(app: Application) {
   const token = randomBytes(32).toString("hex");
+  const brokerId = randomUUID();
   const server = http.createServer(async (req, res) => {
     const reply = (status: number, body: unknown) => {
       res.writeHead(status, {
@@ -17,11 +18,14 @@ export async function startBridge(app: Application) {
     };
     const auth = req.headers.authorization ?? "";
     const expected = `Bearer ${token}`;
+    const supplied = Buffer.from(auth);
+    const expectedBytes = Buffer.from(expected);
     if (
       req.headers.origin ||
       !/^127\.0\.0\.1:\d+$/.test(req.headers.host ?? "") ||
-      auth.length !== expected.length ||
-      !timingSafeEqual(Buffer.from(auth), Buffer.from(expected))
+      !/^Bearer [a-f0-9]{64}$/.test(auth) ||
+      supplied.length !== expectedBytes.length ||
+      !timingSafeEqual(supplied, expectedBytes)
     ) {
       reply(401, { error: "unauthorized" });
       return;
@@ -50,6 +54,14 @@ export async function startBridge(app: Application) {
         reply(200, { ok: true });
       } else if (req.url === "/v1/result") {
         app.report(data.report);
+        app.sweep();
+        if (!app.operations.has(data.id)) {
+          reply(410, {
+            code: "operation_gone",
+            error: "请求已过期清理或属于之前的接入服务实例",
+          });
+          return;
+        }
         reply(200, {
           operation: app.result(
             data.report.instanceId,
@@ -71,12 +83,13 @@ export async function startBridge(app: Application) {
   });
   const port = (server.address() as { port: number }).port;
   const file = path.join(app.store.directory, "connection.json");
-  atomicWrite(file, { protocol: 1, port, token });
+  atomicWrite(file, { protocol: 1, brokerId, port, token });
   const timer = setInterval(() => app.sweep(), 1000);
   timer.unref();
   return {
     port,
     token,
+    brokerId,
     close: async () => {
       clearInterval(timer);
       fs.rmSync(file, { force: true });

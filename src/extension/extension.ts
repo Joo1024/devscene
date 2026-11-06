@@ -6,6 +6,20 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import type { Operation, SessionReport } from "../core/domain";
 
+type Connection = {
+  protocol: 1;
+  port: number;
+  token: string;
+  brokerId?: string;
+};
+class ResponseError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 let stop: (() => Promise<void>) | undefined;
 export async function activate(context: vscode.ExtensionContext) {
   if (
@@ -35,8 +49,12 @@ export async function activate(context: vscode.ExtensionContext) {
     "workbench.action.focusWindow",
   );
   const completed = new Map<string, { state: string; message: string }>();
-  const pendingResults = new Map<string, { state: string; message: string }>();
-  async function send(route: string, body: unknown): Promise<any> {
+  const pendingResults = new Map<
+    string,
+    { state: string; message: string; expiresAt: number }
+  >();
+  let connectedBroker: string | undefined;
+  async function connection(): Promise<Connection> {
     const config = JSON.parse(
       await fs.readFile(path.join(dataDir, "connection.json"), "utf8"),
     );
@@ -45,9 +63,18 @@ export async function activate(context: vscode.ExtensionContext) {
       !Number.isInteger(config.port) ||
       config.port < 1 ||
       config.port > 65535 ||
-      !/^[a-f0-9]{64}$/.test(config.token)
+      typeof config.token !== "string" ||
+      !/^[a-f0-9]{64}$/.test(config.token) ||
+      (config.brokerId !== undefined && typeof config.brokerId !== "string")
     )
       throw new Error("本机接入配置无效");
+    return config;
+  }
+  async function send(
+    config: Connection,
+    route: string,
+    body: unknown,
+  ): Promise<any> {
     return new Promise((resolve, reject) => {
       const req = http.request(
         {
@@ -63,6 +90,8 @@ export async function activate(context: vscode.ExtensionContext) {
         },
         (res) => {
           let data = "";
+          res.on("error", reject);
+          res.on("aborted", () => reject(new Error("本机响应在完成前中断")));
           res.on("data", (chunk) => {
             data += chunk;
           });
@@ -71,7 +100,12 @@ export async function activate(context: vscode.ExtensionContext) {
               const result = JSON.parse(data);
               res.statusCode === 200
                 ? resolve(result)
-                : reject(new Error(result.error || "连接失败"));
+                : reject(
+                    new ResponseError(
+                      res.statusCode ?? 500,
+                      result.error || "连接失败",
+                    ),
+                  );
             } catch (err) {
               reject(err);
             }
@@ -183,27 +217,60 @@ export async function activate(context: vscode.ExtensionContext) {
       return { state: "failed", message: String(err) };
     }
   }
+  async function flushResults(config: Connection): Promise<string | undefined> {
+    let warning: string | undefined;
+    for (const [id, result] of pendingResults) {
+      if (Date.now() >= result.expiresAt) {
+        pendingResults.delete(id);
+        continue;
+      }
+      try {
+        await send(config, "result", {
+          id,
+          state: result.state,
+          message: result.message,
+          report: await report(),
+        });
+        pendingResults.delete(id);
+      } catch (err) {
+        // Invalid/gone operations are terminal. Transport/server failures retry within the operation lifetime.
+        if (
+          err instanceof ResponseError &&
+          [400, 404, 410, 422].includes(err.status)
+        )
+          pendingResults.delete(id);
+        else warning = String(err);
+      }
+    }
+    return warning;
+  }
   async function tick() {
     if (busy || stopped) return;
     busy = true;
     try {
-      for (const [id, result] of pendingResults) {
-        await send("result", { id, ...result, report: await report() });
-        pendingResults.delete(id);
+      // Snapshot the descriptor per tick: never deliver an old command's result to a new broker.
+      const config = await connection();
+      const broker = `${config.brokerId ?? "legacy"}:${config.token}`;
+      if (connectedBroker !== broker) {
+        pendingResults.clear();
+        completed.clear();
+        connectedBroker = broker;
       }
-      const response = await send("poll", await report());
+      // Heartbeats/new requests always get a chance, regardless of a previous result's retry status.
+      const response = await send(config, "poll", await report());
       for (const op of response.requests as Operation[]) {
         const result = await perform(op);
         completed.set(op.id, result);
-        pendingResults.set(op.id, result);
-        await send("result", { id: op.id, ...result, report: await report() });
-        pendingResults.delete(op.id);
+        pendingResults.set(op.id, { ...result, expiresAt: op.expiresAt });
       }
-      if (completed.size > 500)
+      const retryWarning = await flushResults(config);
+      while (completed.size > 500)
         completed.delete(completed.keys().next().value!);
-      message = supported
-        ? "已连接本机 WorkScene · 支持准确激活"
-        : "已连接 · 当前 VS Code 不支持准确激活，请升级";
+      message = retryWarning
+        ? "已连接 WorkScene · 有操作回执等待重试（未确认完成）"
+        : supported
+          ? "已连接本机 WorkScene · 支持准确激活"
+          : "已连接 · 当前 VS Code 不支持准确激活，请升级";
       status.text = "$(plug) WorkScene";
     } catch (err) {
       message = `尚未连接 WorkScene：${String(err)}`;
@@ -217,7 +284,9 @@ export async function activate(context: vscode.ExtensionContext) {
   stop = async () => {
     stopped = true;
     clearInterval(timer);
-    await send("exit", { instanceId }).catch(() => {});
+    try {
+      await send(await connection(), "exit", { instanceId });
+    } catch {}
   };
   context.subscriptions.push(
     status,

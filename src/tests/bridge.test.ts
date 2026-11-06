@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import net from "node:net";
 import { Application } from "../core/application";
 import { Store } from "../core/persistence";
 import { startBridge } from "../integrations/bridge";
@@ -69,6 +70,43 @@ test("real loopback protocol: authentication, origin rejection, heartbeat, opera
     200,
   );
   assert.equal(op.state, "activated");
+  assert.equal(
+    (
+      await post("result", {
+        id: "removed-operation",
+        report,
+        state: "activated",
+        message: "late",
+      })
+    ).status,
+    410,
+  );
+  // Raw latin1 matters: the HTTP parser can return equal string lengths but unequal UTF-8 byte lengths.
+  const malformed = await new Promise<string>((resolve, reject) => {
+    const socket = net.connect(bridge.port, "127.0.0.1", () => {
+      socket.write(
+        Buffer.from(
+          `POST /v1/report HTTP/1.1\r\nHost: 127.0.0.1:${bridge.port}\r\nAuthorization: ${"é".repeat(71)}\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`,
+          "latin1",
+        ),
+      );
+    });
+    let response = "";
+    socket.on("data", (chunk) => {
+      response += chunk;
+    });
+    socket.on("end", () => resolve(response));
+    socket.on("error", reject);
+    socket.setTimeout(3000, () =>
+      socket.destroy(new Error("raw HTTP timeout")),
+    );
+  });
+  assert.match(malformed, /^HTTP\/1.1 401/);
+  assert.equal(
+    (await post("report", report)).status,
+    200,
+    "malformed authentication must not kill the broker",
+  );
   assert.equal(
     (await post("exit", { instanceId: "session-test" })).status,
     200,
